@@ -2,6 +2,7 @@ import Hero from "../components/Hero";
 import LiveMatchBar from "../components/LiveMatchBar";
 import RivalrySnapshot from "../components/RivalrySnapshot";
 import TrophyCard from "../components/TrophyCard";
+import { Link } from "react-router-dom";
 import Footer from "../components/Footer";
 
 export default function Home() {
@@ -33,6 +34,21 @@ export default function Home() {
         <TrophyCard type="silver" />
         <TrophyCard type="gold" />
       </section>
+
+      <div className="flex justify-center mt-12">
+  <Link
+    to="/scorer"
+    className="px-6 py-3 rounded-md border
+      border-white/10
+      bg-white/[0.03]
+      backdrop-blur-xl text-white transition-all
+      duration-300
+      hover:border-white/20
+      hover:bg-white/[0.05]"
+  >
+    Start a Match
+  </Link>
+</div>
 
       <Footer />
     </>
