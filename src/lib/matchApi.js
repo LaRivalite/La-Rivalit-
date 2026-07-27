@@ -4,7 +4,61 @@ import { queueWrite, registerHandler } from "./writeQueue";
 // ── Register handlers so queued writes know how to execute ──
 
 registerHandler("delivery", async (payload) => {
-  const { error } = await supabase.from("deliveries").insert(payload);
+
+  // Find deliveries at this ball position
+  const { data: existing, error: findError } = await supabase
+    .from("deliveries")
+    .select("*")
+    .eq("match_id", payload.match_id)
+    .eq("innings_num", payload.innings_num)
+    .eq("over_num", payload.over_num)
+    .eq("ball_num", payload.ball_num);
+
+
+  if (findError) throw findError;
+
+
+  // Look for an existing LEGAL delivery
+  const legalDelivery = existing?.find(
+    d => d.wide === 0 && d.no_ball === 0
+  );
+
+
+  // If legal ball exists, update it
+  if (legalDelivery) {
+
+    const { data, error } = await supabase
+      .from("deliveries")
+      .update(payload)
+      .eq("id", legalDelivery.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return data;
+  }
+
+
+  // Otherwise create a new delivery
+  const { data, error } = await supabase
+    .from("deliveries")
+    .insert(payload)
+    .select()
+    .single();
+
+
+  if (error) throw error;
+
+  return data;
+});
+
+registerHandler("delivery_delete", async (payload) => {
+  const { error } = await supabase
+    .from("deliveries")
+    .delete()
+    .eq("id", payload.deliveryId);
+
   if (error) throw error;
 });
 
@@ -87,7 +141,7 @@ export async function updateInningsInDB({ inningsId, score, wickets, overs }) {
 
 // ── Insert a delivery — QUEUED (safe if offline) ──
 export async function saveDeliveryToDB(payload) {
-  await queueWrite("delivery", {
+  return await queueWrite("delivery", {
     match_id: payload.matchId,
     innings_num: payload.inningsNum,
     over_num: payload.overNum,
@@ -417,4 +471,18 @@ export async function fetchLiveMatchForRecovery() {
 
   if (error || !match) return null;
   return match;
+}
+
+export async function deleteDeliveryFromDB(deliveryId) {
+
+  const { data, error } = await supabase
+    .from("deliveries")
+    .delete()
+    .eq("id", deliveryId)
+    .select();
+
+  if (error) {
+    console.error("deleteDeliveryFromDB error:", error);
+    throw error;
+  }
 }

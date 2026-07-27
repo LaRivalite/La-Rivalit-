@@ -3,6 +3,8 @@ import WinProbability from "../components/WinProbability";
 import { useNavigate } from "react-router-dom";
 import { fetchCurrentLiveMatch, fetchMatchDeliveries, fetchPlayersById } from "../lib/matchApi";
 import { buildScorecard, buildOverTimeline } from "../lib/scorecardBuilder";
+import mavs from '../assets/logos/mavs.jpg'
+import sparts from '../assets/logos/sparts.jpg';
 
 const POLL_INTERVAL = 5000; // refresh every 5s while live
 
@@ -38,7 +40,7 @@ export default function LiveMatch() {
 
       setMatch(matchData);
       setScorecard(buildScorecard(deliveries, playersById));
-      setOverTimeline(buildOverTimeline(deliveries));
+      setOverTimeline(buildOverTimeline(deliveries, playersById));
       setLoading(false);
     }
 
@@ -88,9 +90,13 @@ export default function LiveMatch() {
         <div className="flex items-center justify-between">
 
           <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-full bg-cyan-600 flex items-center justify-center font-black">
-              {battingTeam[0]}
-            </div>
+            <div className="h-16 w-16 rounded-full overflow-hidden border border-white/15 bg-white/5">
+                          <img
+                            src={battingTeam == "Mavericks" ? mavs : sparts}
+                            alt={battingTeam}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
             <div>
               <div className="font-bold">
                 {card ? `${card.score}/${card.wickets}` : "0/0"}
@@ -118,9 +124,13 @@ export default function LiveMatch() {
                 </div>
               )}
             </div>
-            <div className="h-12 w-12 rounded-full bg-green-600 flex items-center justify-center font-black">
-              {bowlingTeam[0]}
-            </div>
+            <div className="h-16 w-16 rounded-full overflow-hidden border border-white/15 bg-white/5">
+                          <img
+                            src={bowlingTeam == "Mavericks" ? mavs : sparts}
+                            alt={bowlingTeam}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
           </div>
 
         </div>
@@ -190,6 +200,12 @@ export default function LiveMatch() {
               <div key={o.over} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 <div className="flex justify-between items-center">
                   <h3 className="font-bold">Over {o.over + 1}</h3>
+                  <div className="mt-2 text-sm text-zinc-400 space-y-1">
+                    <div>🎯 {o.bowler.name}</div>
+                    <div>
+                      🏏 {o.striker.name}* &nbsp;•&nbsp; {o.nonStriker.name}
+                    </div>
+                  </div>
                   <span className="text-zinc-500 text-sm">
                     {o.runs} Runs{o.wickets > 0 && ` • ${o.wickets} W`}
                   </span>

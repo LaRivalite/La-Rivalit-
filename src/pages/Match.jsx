@@ -36,7 +36,7 @@ export default function Match() {
 
       setMatch(matchData);
       setScorecard(buildScorecard(deliveries, playersById));
-      setOverTimeline(buildOverTimeline(deliveries));
+      setOverTimeline(buildOverTimeline(deliveries, playersById));
       setLoading(false);
     }
 
@@ -142,9 +142,66 @@ export default function Match() {
                     {o.runs} Runs{o.wickets > 0 && ` • ${o.wickets} W`}
                   </span>
                 </div>
-                <div className="flex gap-2 mt-4 flex-wrap">
-                  {o.balls.map((b, i) => <BallChip key={i} value={b} />)}
-                </div>
+                <div className="mt-4 space-y-3">
+
+  {o.balls.map((b, i) => (
+
+    <div
+  key={i}
+  className={`
+    border-t
+    border-white/10
+    pt-3
+    rounded-xl
+    px-3
+    py-3
+    ${
+      b.wicket
+        ? "bg-gradient-to-r from-transparent via-red-600/30 to-transparent"
+        : b.totalRuns === 6
+          ? "bg-gradient-to-r from-transparent via-purple-600/30 to-transparent"
+          : b.totalRuns === 4
+            ? "bg-gradient-to-r from-transparent via-green-600/30 to-transparent"
+            : ""
+    }
+  `}
+>
+
+      <p className="text-xs text-zinc-500">
+        {o.over}.{b.ballNumber + 1}
+      </p>
+
+
+      <p className="text-sm font-semibold">
+        {b.bowler.name}
+        {" → "}
+        {b.striker.name}
+      </p>
+
+
+      <p className="font-bold mt-1">
+
+        {b.wicket
+          ? "WICKET"
+          : b.totalRuns === 0
+            ? "Dot ball"
+            : `${b.totalRuns} run${b.totalRuns > 1 ? "s" : ""}`
+        }
+
+      </p>
+
+
+      {b.wicket && b.outBatter && (
+        <p className="text-xs text-red-400 mt-1">
+          {b.outBatter.name} out ({b.wicketType})
+        </p>
+      )}
+
+    </div>
+
+  ))}
+
+</div>
               </div>
             ))}
           </div>

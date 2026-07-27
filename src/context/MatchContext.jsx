@@ -8,7 +8,9 @@ import {
   getOrCreateActiveSeries,
   fetchLiveMatchForRecovery,
   saveMatchPlayers,
+  deleteDeliveryFromDB,
 } from "../lib/matchApi";
+import { removeQueuedWrite } from "../lib/writeQueue";
 
 const MatchContext = createContext();
 
@@ -54,58 +56,47 @@ function makeInningsState({ battingTeam, fieldingTeam, battingRoster, fieldingRo
     fieldingTeam,
     matchId,
     inningsId,
-
     score: 0,
     wickets: 0,
     over: 0,
     ball: 0,
-
     freeHit: false,
     overJustCompleted: false,
     inningsJustEnded: false,
-
     lastOver: [],
     completedOvers: [],
-
     players: makePlayers(battingRoster).map(p =>
       p.id === striker.id || p.id === nonStriker.id
         ? { ...p, battingInnings: 1 }
         : p
     ),
     fieldingPlayers: makePlayers(fieldingRoster),
-
     striker: { id: striker.id, name: striker.name, runs: 0, balls: 0, fours: 0, sixes: 0 },
     nonStriker: { id: nonStriker.id, name: nonStriker.name, runs: 0, balls: 0, fours: 0, sixes: 0 },
     bowler: { id: bowler.id, name: bowler.name, overs: 0, balls: 0, runs: 0, wickets: 0 },
-
     partnership: { runs: 0, balls: 0 },
     history: [],
   };
 }
 
-// ── localStorage persistence helpers ──────────────────
 function saveToStorage(state) {
   try {
-    // Strip snapshots from history before saving — they contain full state
-    // copies which grow exponentially and blow the localStorage quota.
-    // We only need snapshots in memory for undo; on reload undo is reset anyway.
     const stripped = {
       ...state,
       match: state.match ? {
         ...state.match,
         history: (state.match.history ?? [])
-          .slice(-20) // keep last 20 balls max
-          .map(({ snapshot, ...ball }) => ball), // remove snapshot from each ball
+          .slice(-20)
+          .map(({ snapshot, ...ball }) => ball),
       } : null,
       innings1: state.innings1 ? {
         ...state.innings1,
-        history: [], // innings1 is done, no need to keep history at all
+        history: [],
       } : null,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stripped));
   } catch (e) {
     console.error("Failed to save match to localStorage:", e);
-    // If still failing (very long match), try saving without history at all
     try {
       const minimal = {
         ...state,
@@ -123,20 +114,14 @@ function loadFromStorage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function clearStorage() {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {}
+  try { localStorage.removeItem(STORAGE_KEY); } catch {}
 }
 
 export function MatchProvider({ children }) {
-  // Restore from localStorage — but if the saved match is already completed,
-  // clear it so the scorer starts fresh on reload instead of showing old result
   const rawRestored = loadFromStorage();
   const restored = rawRestored?.matchResult ? null : rawRestored;
   if (rawRestored?.matchResult) clearStorage();
@@ -147,12 +132,10 @@ export function MatchProvider({ children }) {
   const [competition, setCompetition] = useState(restored?.competition ?? null);
   const [allRosters, setAllRosters]   = useState(restored?.allRosters ?? null);
   const [recovering, setRecovering]   = useState(false);
-
-  // If localStorage is empty but a live match exists in Supabase,
-  // show a recovery prompt on the scorer page
   const [recoveryMatch, setRecoveryMatch] = useState(null);
+
   useEffect(() => {
-    if (match) return; // already have state, no need to recover
+    if (match) return;
     async function checkForLiveMatch() {
       const liveMatch = await fetchLiveMatchForRecovery();
       if (liveMatch) setRecoveryMatch(liveMatch);
@@ -160,10 +143,8 @@ export function MatchProvider({ children }) {
     checkForLiveMatch();
   }, []);
 
-  // Persist to localStorage whenever core state changes
-  // But never save a completed match — endMatch already cleared storage
   useEffect(() => {
-    if (matchResult) return; // match is over, don't re-save
+    if (matchResult) return;
     if (match || innings1) {
       saveToStorage({ match, innings1, matchResult, competition, allRosters });
     }
@@ -175,15 +156,12 @@ export function MatchProvider({ children }) {
     setInnings1(null);
     setMatchResult(null);
 
-    // Safety net: make sure every player in both rosters exists in Supabase
-    // before any deliveries reference them (avoids foreign key errors)
     const allPlayers = [
       ...battingRoster.map(p => ({ ...p, team: battingTeam })),
       ...fieldingRoster.map(p => ({ ...p, team: fieldingTeam })),
     ];
     await Promise.all(allPlayers.map(p => ensurePlayerInDB({ id: p.id, name: p.name, team: p.team })));
 
-    // Find or create the active series for this competition
     const series = await getOrCreateActiveSeries(comp);
     const seriesId = series?.id ?? null;
 
@@ -198,12 +176,12 @@ export function MatchProvider({ children }) {
 
     const matchId = matchRow?.id ?? null;
 
-if (matchId) {
-  await saveMatchPlayers(matchId, [
-    ...battingRoster.map(p => ({ ...p, team: battingTeam })),
-    ...fieldingRoster.map(p => ({ ...p, team: fieldingTeam })),
-  ]);
-}
+    if (matchId) {
+      await saveMatchPlayers(matchId, [
+        ...battingRoster.map(p => ({ ...p, team: battingTeam })),
+        ...fieldingRoster.map(p => ({ ...p, team: fieldingTeam })),
+      ]);
+    }
 
     let inningsId = null;
     if (matchId) {
@@ -252,7 +230,6 @@ if (matchId) {
   }
 
   async function endMatch(finalMatch) {
-    const inn1 = innings1 || match;
     const inn2 = finalMatch || match;
     const target = inn2.target;
 
@@ -268,9 +245,6 @@ if (matchId) {
     }
 
     setMatchResult(result);
-
-    // Clear localStorage immediately when match ends — don't wait for "New Match" tap.
-    // This prevents the scorer from reopening a finished match on page reload.
     clearStorage();
 
     if (inn2.matchId) {
@@ -289,16 +263,64 @@ if (matchId) {
     });
   }
 
-  function undoLastBall() {
-    setMatch(prev => {
-      if (!prev || prev.history.length === 0) return prev;
-      const lastBall = prev.history[prev.history.length - 1];
-      return { ...lastBall.snapshot, history: prev.history.slice(0, -1) };
-    });
+  async function undoLastBall() {
+    // Capture ball info from current match BEFORE setMatch clears it
+    if (!match || match.history.length === 0) return;
+
+    const undoneBall = match.history[match.history.length - 1];
+
+
+    if (!undoneBall.snapshot) {
+      // No snapshot (loaded from localStorage after reload) — best effort
+      setMatch(prev => ({
+        ...prev,
+        history: prev.history.slice(0, -1),
+        lastOver: prev.lastOver.slice(0, -1),
+      }));
+      return;
+    }
+
+    const restoredState = {
+      ...undoneBall.snapshot,
+      history: match.history.slice(0, -1),
+    };
+
+    // Restore UI immediately
+    setMatch(restoredState);
+
+    // 1. Ball still in offline queue — just remove it, no DB call needed
+    if (undoneBall.queueId) {
+      const removed = removeQueuedWrite(undoneBall.queueId);
+      if (removed) {
+        await syncInningsToDB(restoredState);
+        return;
+      }
+    }
+
+    // 2. Ball already in Supabase — delete it
+    if (undoneBall.deliveryId) {
+
+
+  try {
+
+    const result = await deleteDeliveryFromDB(
+      undoneBall.deliveryId
+    );
+
+  } catch (err) {
+
+    console.error(
+      "FAILED DELETE:",
+      err
+    );
+
+  }
+}
+
+    // 3. Sync corrected innings totals
+    await syncInningsToDB(restoredState);
   }
 
-  // Call this to fully end the match session and clear local storage
-  // (e.g. from a "New Match" button after viewing the result)
   function clearMatchSession() {
     setMatch(null);
     setInnings1(null);

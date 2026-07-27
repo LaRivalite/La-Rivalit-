@@ -228,9 +228,6 @@ export default function Scorer() {
           <ActionGrid />
         </div>
 
-        <CurrentOver />
-        <OverHistory />
-
         <div className="grid grid-cols-2 gap-3 mt-2">
           <button onClick={handleSwap}
             className="h-14 rounded-2xl border border-white/10 bg-white/[0.03] font-bold active:scale-95 transition">
@@ -249,6 +246,9 @@ export default function Scorer() {
             End Over
           </button>
         </div>
+
+        <CurrentOver />
+        <OverHistory />
 
       </div>
 

@@ -150,11 +150,35 @@ function formatDismissal(d, playersById) {
   }
 }
 
-export function buildOverTimeline(deliveries) {
+export function buildOverTimeline(deliveries, playersById) {
   const byOver = {};
   for (const d of deliveries) {
     const key = `${d.innings_num}-${d.over_num}`;
-    if (!byOver[key]) byOver[key] = { innings: d.innings_num, over: d.over_num, balls: [], runs: 0, wickets: 0 };
+    if (!byOver[key]) {
+  byOver[key] = {
+    innings: d.innings_num,
+    over: d.over_num,
+
+    bowler: {
+      id: d.bowler_id,
+      name: playersById[d.bowler_id]?.name ?? "Unknown",
+    },
+
+    striker: {
+      id: d.striker_id,
+      name: playersById[d.striker_id]?.name ?? "Unknown",
+    },
+
+    nonStriker: {
+      id: d.non_striker_id,
+      name: playersById[d.non_striker_id]?.name ?? "Unknown",
+    },
+
+    balls: [],
+    runs: 0,
+    wickets: 0,
+  };
+}
 
     let label;
     if (d.is_wicket) {
@@ -169,9 +193,45 @@ export function buildOverTimeline(deliveries) {
     else if (d.byes > 0)    label = `${d.byes}B`;
     else                    label = d.runs_off_bat.toString();
 
-    byOver[key].balls.push(label);
-    byOver[key].runs += d.total_runs;
-    if (d.is_wicket) byOver[key].wickets++;
+    byOver[key].balls.push({
+  label,
+
+  ballNumber: d.ball_num,
+
+  striker: {
+    id: d.striker_id,
+    name: playersById[d.striker_id]?.name ?? "Unknown",
+  },
+
+  nonStriker: {
+    id: d.non_striker_id,
+    name: playersById[d.non_striker_id]?.name ?? "Unknown",
+  },
+
+  bowler: {
+    id: d.bowler_id,
+    name: playersById[d.bowler_id]?.name ?? "Unknown",
+  },
+
+  totalRuns: d.total_runs,
+
+  wicket: d.is_wicket,
+
+  wicketType: d.wicket_type,
+
+  outBatter: d.wicket_batter
+    ? {
+        id: d.wicket_batter,
+        name: playersById[d.wicket_batter]?.name ?? "Unknown",
+      }
+    : null,
+});
+
+byOver[key].runs += d.total_runs;
+
+if (d.is_wicket) {
+  byOver[key].wickets++;
+}
   }
 
   return Object.values(byOver).sort((a, b) =>

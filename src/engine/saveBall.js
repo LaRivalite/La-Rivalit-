@@ -3,17 +3,17 @@ import { saveDeliveryToDB } from "../lib/matchApi";
 
 export function saveBall(match, setMatch, data, closeSheet, syncInningsToDB) {
   const ball = createBall({
-    over:      match.over,
-    ball:      match.ball,
-    striker:   match.striker.id,
+    over:       match.over,
+    ball:       match.ball,
+    striker:    match.striker.id,
     nonStriker: match.nonStriker.id,
-    bowler:    match.bowler.id,
+    bowler:     match.bowler.id,
     runsOffBat: data.runsOffBat ?? 0,
-    wide:      data.wide    ?? 0,
-    noBall:    data.noBall  ?? 0,
-    byes:      data.byes    ?? 0,
-    wicket:    data.wicket  ?? null,
-    freeHit:   data.freeHit ?? false,
+    wide:       data.wide    ?? 0,
+    noBall:     data.noBall  ?? 0,
+    byes:       data.byes    ?? 0,
+    wicket:     data.wicket  ?? null,
+    freeHit:    data.freeHit ?? false,
   });
 
   let nextStateForDB = null;
@@ -27,37 +27,17 @@ export function saveBall(match, setMatch, data, closeSheet, syncInningsToDB) {
         runs: 0, balls: 0, fours: 0, sixes: 0,
       };
 
-      // Use outBatterId to determine which slot to fill.
-      // Compare against ORIGINAL prev state (before applyBall rotations)
-      // because outBatterId was selected before any rotation happened.
-      const outId = data.wicket?.outBatterId ?? prev.striker.id;
-      const nonStrikerGotOut = outId === prev.nonStriker.id;
+      const originalStrikerId = prev.striker.id;
+const originalNonStrikerId = prev.nonStriker.id;
 
-      // After applyBall, striker/nonStriker may have rotated due to runs.
-      // We need to place new batter in the slot of whoever got out
-      // in the POST-rotation state.
-      if (nonStrikerGotOut) {
-        // Non-striker got out. After odd runs they may have swapped.
-        // Check if they swapped: if runsOffBat is odd, they swapped,
-        // so non-striker in next state is what was striker in prev.
-        const runsForStrike = (data.runsOffBat ?? 0) + (data.byes ?? 0);
-        const swapped = runsForStrike % 2 === 1;
-        if (swapped) {
-          // After swap, the out batter is now in striker slot
-          next.striker = newBatterObj;
-        } else {
-          next.nonStriker = newBatterObj;
-        }
-      } else {
-        // Striker got out. Same logic — check if runs caused a swap.
-        const runsForStrike = (data.runsOffBat ?? 0) + (data.byes ?? 0);
-        const swapped = runsForStrike % 2 === 1;
-        if (swapped) {
-          next.nonStriker = newBatterObj;
-        } else {
-          next.striker = newBatterObj;
-        }
-      }
+const outId = data.wicket?.outBatterId ?? originalStrikerId;
+
+// Replace whichever batter in NEXT has the dismissed player's ID
+if (next.striker.id === outId) {
+  next.striker = newBatterObj;
+} else if (next.nonStriker.id === outId) {
+  next.nonStriker = newBatterObj;
+}
 
       next.players = next.players.map(p =>
         p.id === data.newBatter.id ? { ...p, battingInnings: p.battingInnings + 1 } : p
@@ -74,6 +54,7 @@ export function saveBall(match, setMatch, data, closeSheet, syncInningsToDB) {
     return next;
   });
 
+  // Save to DB and store queueId/deliveryId back into the last history entry
   if (match.matchId) {
     saveDeliveryToDB({
       matchId:      match.matchId,
@@ -93,8 +74,22 @@ export function saveBall(match, setMatch, data, closeSheet, syncInningsToDB) {
       wicketBatter: ball.wicket?.outBatterId ?? null,
       fielderId:    ball.wicket?.fielder ?? null,
       isFreeHit:    ball.freeHit,
+    }).then(result => {
+      if (!result) return;
+      // Store the queueId or deliveryId into the last history ball
+      // so undoLastBall knows how to delete it
+      setMatch(prev => {
+        if (!prev || prev.history.length === 0) return prev;
+        const history = [...prev.history];
+        const last = { ...history[history.length - 1] };
+        last.queueId    = result.queueId    ?? null;
+        last.deliveryId = result.deliveryId ?? null;
+        history[history.length - 1] = last;
+        return { ...prev, history };
+      });
     }).catch(err => console.error("Delivery save failed:", err));
   }
+
 
   if (syncInningsToDB && nextStateForDB) {
     syncInningsToDB(nextStateForDB).catch(err => console.error("Innings sync failed:", err));
@@ -134,14 +129,12 @@ export function applyBall(prev, ball) {
     bowler.overs = Math.floor(bowler.balls / 6) + (bowler.balls % 6) / 10;
   }
 
-  // Ball label — with runs for wickets e.g. "1W", "2W"
   let label;
   if (ball.wicket) {
     const runsOnWicketBall = ball.runsOffBat + ball.extras.byes;
     label = runsOnWicketBall > 0 ? `${runsOnWicketBall}W` : "W";
   } else if (ball.extras.wide) {
-    const extraByes = ball.extras.byes;
-    label = extraByes > 0 ? `${1 + extraByes}wd` : "wd";
+    label = ball.extras.byes > 0 ? `${1 + ball.extras.byes}wd` : "wd";
   } else if (ball.extras.noBall) {
     const runsOnNB = ball.runsOffBat + ball.extras.byes;
     label = runsOnNB > 0 ? `${1 + runsOnNB}nb` : "nb";
@@ -202,7 +195,7 @@ export function applyBall(prev, ball) {
     }
   }
 
-  // Strike rotation applies for ALL balls including wickets (run outs with runs)
+  // Strike rotation for ALL balls including wickets (run outs with runs)
   if (!inningsJustEnded) {
     const runsForStrike = ball.runsOffBat + ball.extras.byes;
     if (runsForStrike % 2 === 1) [striker, nonStriker] = [nonStriker, striker];
